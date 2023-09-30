@@ -42,7 +42,7 @@ class raw_env(AECEnv):
     # Max number of agents and clients
     maxClients = 1
     maxCdns = 2
-    maxEdgeServers = 10
+    maxEdgeServers = 4 # For each CDN
 
     # Number of agents and clients
     numClient = 1
@@ -74,7 +74,7 @@ class raw_env(AECEnv):
 
         #TODO currently taking random cdn as fetching origin
         randomCDN = random.choice(list(self.cdns.values()))
-        self.clients = {f'client{i}': Client(id=f'client{i}', position=(1,1), currentCDN=randomCDN) for i in range(self.numClient)}
+        self.clients = {f'client{i}': Client(id=f'client{i}', position=(1,1), currentCDN=randomCDN) for i in range(self.maxClients)}
         
         # optional: a mapping between agent name and agent object
         self.agent_name_mapping = dict(
@@ -134,36 +134,20 @@ class raw_env(AECEnv):
         
         if agent == 'cp':
             # Create the observation space for Content Provider
-            
-            observation_space = Dict({
-                'observation': Dict({
-                    'clientsInfo': Dict({
-                        'client0': Dict({
-                            'position': Tuple([Discrete(10), Discrete(10)])
-                        })
-                    })
-                })
-            })
-            self._observation_space_cache[agent] = observation_space
-            self.observation_spaces[agent] = observation_space
-            
-            
-            ## Remove later v
-            # observation = {
-            #     'observation': {
-            #         'clientsInfo': {
-            #             'client0': {
-            #                 'position': np.array((1, 1), dtype=np.int32)
-            #             }
-            #         }
-            #     }
-            # }
-            # observation['observation']['clientsInfo']['client0']['position'] = (1, 1)
-            # if observation_space.contains(observation):
-            #     print('Does it work now? HERE')
-            # quit()
-            ## Remove later ^
-            
+            observation_space = Dict({'observation':  Dict({
+                'cdn_pricing': Box(low=0, high=10, shape=(self.maxCdns,), dtype=float),
+                'edge_server_locations': Dict({
+                    f'cdn{i}': Box(
+                        low=np.zeros((len(self.agentsDict[cdn].edgeServers), 2), dtype=int),
+                        high=np.full((len(self.agentsDict[cdn].edgeServers), 2), [self.x, self.y], dtype=int),
+                        dtype=int
+                    )
+                    for i, cdn in enumerate(self.cdns)
+                }),
+                'client_locations': Box(low=np.zeros((self.maxClients, 2), dtype=int), 
+                                        high=np.full((self.maxClients, 2), [self.x, self.y], dtype=int), dtype=int)
+            })})
+            self._observation_space_cache[agent]  = observation_space
             return observation_space
             
         
@@ -208,20 +192,26 @@ class raw_env(AECEnv):
 
         # For CP
         if agent == 'cp':
+            # Testing observation on observation space
+            cdn_pricing = np.array([self.agentsDict[cdn].pricingFactor for cdn in self.cdns], dtype=float)
 
-            observation = {
-                'observation': {
-                    'clientsInfo': {
-                        'client0': {
-                            'position': np.array((1, 1), dtype=np.int32)
-                        }
-                    }
-                }
+            edge_server_locations = {
+                f'cdn{i}': np.array(self.agentsDict[cdn].edgeServers, dtype=int)
+                for i, cdn in enumerate(self.cdns)
             }
-            observation['observation']['clientsInfo']['client0']['position'] = (1, 1)
 
-            self.observations[agent] = observation
-            
+            client_locations = np.array([self.clients[client].position for client in self.clients], dtype=int)
+
+            observation = { 'observation' : {
+                # Pricing of CDNs: Random float values between 0 and 10 for each CDN
+                'cdn_pricing': cdn_pricing,
+                
+                # Location of edge servers: Random (x, y) coordinates between 0 and map dimensions for each edge server in each CDN
+                'edge_server_locations': edge_server_locations,
+                
+                # Location of clients: Random (x, y) coordinates between 0 and map dimensions for each client
+                'client_locations': client_locations
+            }}
             return observation
 
         # For CDN
