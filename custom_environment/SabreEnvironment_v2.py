@@ -133,27 +133,49 @@ class raw_env(AECEnv):
             return self._observation_space_cache[agent]
         
         if agent == 'cp':
-
-            # Create the observation space
-            cp_observation_space = Dict({
-                'clientsInfo': Dict({
-                    'client0': Dict({
-                        'position': Tuple([Discrete(10), Discrete(10)])
+            # Create the observation space for Content Provider
+            
+            observation_space = Dict({
+                'observation': Dict({
+                    'clientsInfo': Dict({
+                        'client0': Dict({
+                            'position': Tuple([Discrete(10), Discrete(10)])
+                        })
                     })
                 })
             })
-            self._observation_space_cache[agent] = cp_observation_space
-            self.observation_spaces[agent] = {'observation': cp_observation_space} 
-            return cp_observation_space
+            self._observation_space_cache[agent] = observation_space
+            self.observation_spaces[agent] = observation_space
+            
+            
+            ## Remove later v
+            # observation = {
+            #     'observation': {
+            #         'clientsInfo': {
+            #             'client0': {
+            #                 'position': np.array((1, 1), dtype=np.int32)
+            #             }
+            #         }
+            #     }
+            # }
+            # observation['observation']['clientsInfo']['client0']['position'] = (1, 1)
+            # if observation_space.contains(observation):
+            #     print('Does it work now? HERE')
+            # quit()
+            ## Remove later ^
+            
+            return observation_space
+            
         
         elif agent == 'cdn0' or agent == 'cdn1':
-            # Define client positions
-            client_positions = Dict({
-                f'client{i}': Tuple([Discrete(self.x), Discrete(self.y)]) for i in range(self.maxClients)
+            # Define client positions dictionary
+
+            clientPositions = Dict({
+                'client0': Tuple([Discrete(self.x), Discrete(self.y)])
             })
 
             # Define CDN info dictionary
-            cdn_info_dict = Dict({
+            cndData = Dict({
                 f'cdn{i}': Dict(
                     {
                         'pricing': Box(low=np.array([0]), high=np.array([10]), dtype=np.float32),  # Float values, lowest is 0, highest is 10
@@ -163,15 +185,15 @@ class raw_env(AECEnv):
             })
 
             # Create the observation space
-            cdn_obs_space = Dict(
+            cdnObsSpace = Dict(
                 {
-                    'clientPositions': client_positions,
-                    'cdnInfo': cdn_info_dict
+                    'clientPositions': clientPositions,
+                    'cndData': cndData
                 }
             )
         
-            self._observation_space_cache[agent] = cdn_obs_space
-            return cdn_obs_space
+            self._observation_space_cache[agent] = cdnObsSpace
+            return cdnObsSpace
         
         else:
             raise Exception(f'Agent {agent} in observation_space function not found.')
@@ -185,35 +207,44 @@ class raw_env(AECEnv):
         print(f'observe({agent})')
 
         # For CP
-        if agent == 'cp' or agent == 'cdn0' or agent == 'cdn1':
+        if agent == 'cp':
 
             observation = {
                 'observation': {
                     'clientsInfo': {
                         'client0': {
-                            'position': (1, 1)
+                            'position': np.array((1, 1), dtype=np.int32)
+                        }
+                    }
+                }
+            }
+            observation['observation']['clientsInfo']['client0']['position'] = (1, 1)
+
+            self.observations[agent] = observation
+            
+            return observation
+
+        # For CDN
+        elif agent == 'cdn0' or agent == 'cdn1':
+
+            observation = {
+                'observation': {
+                    'clientPositions': {
+                        'client0': (1, 1)
+                    },
+                    'cndData': {
+                        'cdn0': {
+                            'pricing': 1.0,
+                            'edgeServer': (1, 1)
+                        },
+                        'cdn1': {
+                            'pricing': 1.0,
+                            'edgeServer': (1, 1)
                         }
                     }
                 }
             }
             return observation
-
-        # For CDN
-        elif agent == 'cdn0' or agent == 'cdn1':
-            pass
-            # clientPositions = {}
-            # for client in self.clients.values():
-            #     clientPositions[client.id] = client.position
-
-            # cdnInfo = {}
-            # for cdn in self.cdns.values():
-            #     cdnDict = {'pricing': cdn.pricingFactor, 'edgeServer': cdn.edgeServers}
-            #     cdnInfo[cdn.id] = cdnDict
-
-            # return {
-            #     'clientPositions': clientPositions,
-            #     'cdnInfo': cdnInfo
-            # }
          
         else:
             raise Exception('Agent in observe function not found.')
