@@ -26,7 +26,7 @@ def env(render_mode=None):
     # Provides a wide vareity of helpful user errors
     # Strongly recommended
     env = wrappers.OrderEnforcingWrapper(env)
-    env = FlattenObservation(env)
+    # env = FlattenObservation(env)
     api_test(env, num_cycles=1000, verbose_progress=False)
     return env
 
@@ -137,26 +137,24 @@ class raw_env(AECEnv):
         if agent == 'cp':
             # Create the observation space for Content Provider
             observation_space = Dict({
-                'observation': Dict({
-                    'client_locations': Box(
-                        low=0, 
-                        high=10,
-                        shape=(self.maxClients,2),
-                        dtype=np.int32
-                    ),
-                    'cdn_pricing': Box(
-                        low=0, 
-                        high=10, 
-                        shape=(self.maxCdns,), 
-                        dtype=np.float32
-                    ),
-                    'edgeServer_locations': Box(
-                        low=0, 
-                        high=10,
-                        shape=(self.maxCdns, self.maxEdgeServers, 2),
-                        dtype=np.int32
-                    )
-                })
+                'client_locations': Box(
+                    low=0, 
+                    high=10,
+                    shape=(self.maxClients,2),
+                    dtype=np.int32
+                ),
+                'cdn_pricing': Box(
+                    low=0, 
+                    high=10, 
+                    shape=(self.maxCdns,), 
+                    dtype=np.float32
+                ),
+                'edgeServer_locations': Box(
+                    low=0, 
+                    high=10,
+                    shape=(self.maxCdns, self.maxEdgeServers, 2),
+                    dtype=np.int32
+                )
             })
             self._observation_space_cache[agent]  = observation_space
             return observation_space
@@ -235,15 +233,14 @@ class raw_env(AECEnv):
                     edgeServer_locations[i, j] = edgeServer
 
             observation = {
-                'observation': {
-                    'client_locations': client_locations,
-                    'cdn_pricing': cdn_pricing,
-                    'edgeServer_locations': edgeServer_locations
-                }
+                'client_locations': client_locations,
+                'cdn_pricing': cdn_pricing,
+                'edgeServer_locations': edgeServer_locations
             }
 
             print(observation_space.contains(observation))
             print(observation)
+            # quit()
 
 
             return observation
