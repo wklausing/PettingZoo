@@ -8,6 +8,7 @@ import numpy as np
 import random
 from gymnasium.spaces import Dict, Tuple, Discrete, Box, MultiDiscrete
 from pettingzoo.test import api_test
+from gymnasium.wrappers import FlattenObservation
 
 def env(render_mode=None):
     """
@@ -25,6 +26,7 @@ def env(render_mode=None):
     # Provides a wide vareity of helpful user errors
     # Strongly recommended
     env = wrappers.OrderEnforcingWrapper(env)
+    env = FlattenObservation(env)
     api_test(env, num_cycles=1000, verbose_progress=False)
     return env
 
@@ -134,19 +136,28 @@ class raw_env(AECEnv):
         
         if agent == 'cp':
             # Create the observation space for Content Provider
-            observation_space = Dict({'observation':  Dict({
-                'cdn_pricing': Box(low=0, high=10, shape=(self.maxCdns,), dtype=float),
-                'edge_server_locations': Dict({
-                    f'cdn{i}': Box(
-                        low=np.zeros((len(self.agentsDict[cdn].edgeServers), 2), dtype=int),
-                        high=np.full((len(self.agentsDict[cdn].edgeServers), 2), [self.x, self.y], dtype=int),
-                        dtype=int
+            observation_space = Dict({
+                'observation': Dict({
+                    'client_locations': Box(
+                        low=0, 
+                        high=10,
+                        shape=(self.maxClients,2),
+                        dtype=np.int32
+                    ),
+                    'cdn_pricing': Box(
+                        low=0, 
+                        high=10, 
+                        shape=(self.maxCdns,), 
+                        dtype=np.float32
+                    ),
+                    'edgeServer_locations': Box(
+                        low=0, 
+                        high=10,
+                        shape=(self.maxCdns, self.maxEdgeServers, 2),
+                        dtype=np.int32
                     )
-                    for i, cdn in enumerate(self.cdns)
-                }),
-                'client_locations': Box(low=np.zeros((self.maxClients, 2), dtype=int), 
-                                        high=np.full((self.maxClients, 2), [self.x, self.y], dtype=int), dtype=int)
-            })})
+                })
+            })
             self._observation_space_cache[agent]  = observation_space
             return observation_space
             
@@ -192,26 +203,49 @@ class raw_env(AECEnv):
 
         # For CP
         if agent == 'cp':
-            # Testing observation on observation space
-            cdn_pricing = np.array([self.agentsDict[cdn].pricingFactor for cdn in self.cdns], dtype=float)
 
-            edge_server_locations = {
-                f'cdn{i}': np.array(self.agentsDict[cdn].edgeServers, dtype=int)
-                for i, cdn in enumerate(self.cdns)
+            observation_space = Dict({
+                'client_locations': Box(
+                    low=0, 
+                    high=10,
+                    shape=(self.maxClients,2),
+                    dtype=np.int32
+                ),
+                'cdn_pricing': Box(
+                    low=0, 
+                    high=10, 
+                    shape=(self.maxCdns,), 
+                    dtype=np.float32
+                ),
+                'edgeServer_locations': Box(
+                    low=0, 
+                    high=10,
+                    shape=(self.maxCdns, self.maxEdgeServers, 2),
+                    dtype=np.int32
+                )
+            })
+
+            client_locations = np.array([client.position for client in self.clients.values()], dtype=np.int32)
+
+            cdn_pricing = np.array([self.agentsDict[cdn].pricingFactor for cdn in self.cdns], dtype=np.float32)
+
+            edgeServer_locations = np.zeros((self.maxCdns, self.maxEdgeServers, 2), dtype=np.int32)
+            for i, cdn in enumerate(self.cdns.values()):
+                for j, edgeServer in enumerate(cdn.edgeServers):
+                    edgeServer_locations[i, j] = edgeServer
+
+            observation = {
+                'observation': {
+                    'client_locations': client_locations,
+                    'cdn_pricing': cdn_pricing,
+                    'edgeServer_locations': edgeServer_locations
+                }
             }
 
-            client_locations = np.array([self.clients[client].position for client in self.clients], dtype=int)
+            print(observation_space.contains(observation))
+            print(observation)
 
-            observation = { 'observation' : {
-                # Pricing of CDNs: Random float values between 0 and 10 for each CDN
-                'cdn_pricing': cdn_pricing,
-                
-                # Location of edge servers: Random (x, y) coordinates between 0 and map dimensions for each edge server in each CDN
-                'edge_server_locations': edge_server_locations,
-                
-                # Location of clients: Random (x, y) coordinates between 0 and map dimensions for each client
-                'client_locations': client_locations
-            }}
+
             return observation
 
         # For CDN
@@ -351,14 +385,13 @@ class raw_env(AECEnv):
         
 class CDN:
     cdn = True
-    edgeServers = []
+    edgeServers = [(1,1),(1,1),(1,1),(1,1)]
     soldContigent = 0 # GBs
 
     def __init__(self, id, money=100, pricingFactor=1.0, initialEdgeServer=(1,1)) -> None:
         self.id = id
         self.money = money
         self.pricingFactor = pricingFactor
-        self.edgeServers.append(initialEdgeServer)
 
     def changePrice(self, pricingFactor) -> None:
         '''
@@ -431,7 +464,37 @@ class ContentProvider:
 
 if __name__ == "__main__":
 
+    # space = Dict({
+    #     'observation': Dict({
+    #         'a': Box(low=0, high=1, shape=(2,), dtype=np.float32),
+    #         'b': Dict({
+    #             'c': Discrete(2),
+    #             'd': Box(low=0, high=1, shape=(1,), dtype=np.float32)
+    #             })
+    #     })
+    # })
+
+    # # Define a valid observation
+    # observation = {
+    #     'observation': {
+    #         'a': np.array([0.1, 0.2], dtype=np.float32),
+    #         'b': {
+    #             'c': 1,
+    #             'd': np.array([0.3], dtype=np.float32)
+    #         }
+    #     }
+    # }
+
+    # print(space['observation']['a'].contains(observation['observation']['a']))  # Should print True
+    # print(space['observation']['b']['c'].contains(observation['observation']['b']['c']))  # Should print True
+    # print(space['observation']['b']['d'].contains(observation['observation']['b']['d']))  # Should print True
+
+    # # Check if the observation is valid
+    # print('Here comes the result:',  space.contains(observation)) # Should print True
+    # print(observation['observation'].dtype)
+
     env()
+
     # env = raw_env()
     # env.reset()
     # for agent in env.agent_iter():
