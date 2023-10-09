@@ -60,13 +60,13 @@ class raw_env(AECEnv):
         self.cdnCount = cdnCount
         self.turn_counter = 0
 
-        self.cdnIds = [f'cdn{i}' for i in range(cdnCount)]
-        self.cdns = [CDN(env=self, id=f'cdn{i}') for i in range(cdnCount)]
+        self.cdnIds = [f'cdn_{i}' for i in range(cdnCount)]
+        self.cdns = [CDN(env=self, id=f'cdn_{i}') for i in range(cdnCount)]
 
-        self.contentProvider = ContentProvider(env=self, id='cp')
-        self.agentsDict = {'cp': self.contentProvider, **{self.cdns[i].id: self.cdns[i] for i in range(cdnCount)}}
-        self.agents = ['cp'] + self.cdnIds # List of all agent ids.
-        self.possible_agents = ['cp'] + self.cdnIds # List of all agent ids, which never changes.
+        self.contentProvider = ContentProvider(env=self, id='cp_0')
+        self.agentsDict = {'cp_0': self.contentProvider, **{self.cdns[i].id: self.cdns[i] for i in range(cdnCount)}}
+        self.agents = ['cp_0'] + self.cdnIds # List of all agent ids.
+        self.possible_agents = ['cp_0'] + self.cdnIds # List of all agent ids, which never changes.
 
         #TODO currently taking first cdn as fetching origin
         self.clients = [Client(env=self, id=f'client{i}', currentCDN=self.cdns[0]) for i in range(numClient)]
@@ -94,11 +94,11 @@ class raw_env(AECEnv):
 
         action_space = None
 
-        if agent == 'cp':
+        if 'cp' in agent:
             '''
             Possible action of CP: First, purchasing a contingent of GBs from a CDN; second, steering clients to edge server.
             '''
-            total_edge_servers = sum(len(cdn.edgeServers) for cdn in self.cdns.values())
+            total_edge_servers = len(self.cdns)# Should later on be number of edgeServers, not CDNs
             numClients = len(self.clients)
             action_space = Dict({
                 "buyContigent": Discrete(self.cdnCount + 1), # Counting up from 0 to cdnCount-1. Last action is not buying contigent.
@@ -128,14 +128,14 @@ class raw_env(AECEnv):
         if agent in self._observation_space_cache:
             return self._observation_space_cache[agent]
         
-        if agent == 'cp':
+        if 'cp' in agent:
             '''
             Observation space for CP: First position of clients, second, pricing of CDNs, third, positions of edge servers.
             '''
             total_size = self.numClient + self.cdnCount + self.cdnCount * self.maxEdgeServers
             observation_space = Box(low=0, high=10, shape=(total_size,), dtype=np.float32)
 
-        elif agent == 'cdn0' or agent == 'cdn1':
+        elif 'cdn' in agent:
             '''
             Observation space for CDN: First position of clients, second, pricing of CDNs, third, positions of edge servers.
             '''
@@ -156,22 +156,20 @@ class raw_env(AECEnv):
         """
         #print(f'observe({agent})')
 
-        if agent == 'cp':
+        if 'cp' in agent:
             '''
             Observation for CP: First position of clients, second, pricing of CDNs, third, positions of edge servers.
             '''
             client_locations = np.array([client.position for client in self.clients], dtype=np.float32)
             cdn_pricing = np.array([self.agentsDict[cdn].pricingFactor for cdn in self.cdnIds], dtype=np.float32)
-            edgeServer_locations = np.array([edgeServer for cdn in self.cdns for edgeServer in cdn.edgeServers])
+            edgeServer_locations = np.array([edgeServer for cdn in self.cdns for edgeServer in cdn.edgeServers], dtype=np.float32)
 
         elif 'cdn' in agent:
             '''
             Observation space for CDN: First position of clients, second, pricing of CDNs, third, positions of edge servers.
             '''
             client_locations = np.array([client.position for client in self.clients], dtype=np.float32)
-
             cdn_pricing = np.array([cdn.pricingFactor for cdn in self.cdns], dtype=np.float32)
-
             edgeServer_locations = np.zeros((self.cdnCount * self.maxEdgeServers), dtype=np.float32)
             for i, cdn in enumerate(self.cdns):
                 for _, edgeServer in enumerate(cdn.edgeServers):
@@ -267,18 +265,18 @@ class raw_env(AECEnv):
     def doCpAction(self, action):
         '''
         Doing action of CP agent.
-        '''    
+        '''
         # Cleaning up rewards of clients
         for client in self.clients:
-                self._cumulative_rewards[agent] += client.reward
+                self.rewards[self.agent_selection] += client.reward
                 if client.reward < 0:
                     print(f'Client {client.id} has negative reward.')
                 client.reward = 0
 
-        if action is None: return   
+        if action is None: return
 
         buyContigent = action['buyContigent']
-        if buyContigent <= self.cdnCount:
+        if buyContigent < self.cdnCount:
             self.contentProvider.buyContigent(self.cdns[buyContigent])
         
         steerClient = action['steerClient']
@@ -288,7 +286,7 @@ class raw_env(AECEnv):
 
     def doCDNAction(self, action):
         cdnAgent = self.agentsDict[self.agent_selection]
-        cdnAgent.pricingFactor = action['changePrice']
+        cdnAgent.pricingFactor = action['changePrice'][0]
 
     def update_environment_dynamics(self):
         """
@@ -319,16 +317,18 @@ class CDN:
         self.id = id
         self.edgeServers = [1.0] * env.maxEdgeServers
         self.money = money
-        self.pricingFactor = pricingFactor
+        self._pricingFactor = pricingFactor
         self.soldContigent = 0 # GBs   
 
-    def changePrice(self, pricingFactor) -> None:
-        '''
-        Action: Allows CDN agent to change prices.
-        '''
-        self.pricingFactor = pricingFactor
+    @property
+    def pricingFactor(self):
+        return self._pricingFactor
+    
+    @pricingFactor.setter
+    def pricingFactor(self, value):
+        self._pricingFactor = round(value, 3)
 
-    def moveEdgeServer(self, position: int) -> None:
+    def moveEdgeServer(self, position: float) -> None:
         '''
         Action: Edge servers of a CDN is defined as a list of positions.
         '''
@@ -336,8 +336,6 @@ class CDN:
         self.soldContigent -= 10
 
     def sellContigent(self, money) -> None:
-        print(f'Agent {self.id} Selling {money} GBs to CP with pricingFactor {self.pricingFactor}.')
-
         '''
         Action: Selling contigent of GBs to CP.
         '''
@@ -396,62 +394,64 @@ class ContentProvider:
 
 if __name__ == "__main__":
 
-    env = raw_env()
-    env.reset()
-    stepCount = 0
-    for agent in env.agent_iter():
-        obs, reward, terminated, truncated, info = env.last()
-        if terminated:
-            env.step(None)
-            print(f'Agent {agent} terminated')
+    # env = raw_env()
+    # env.reset()
+    # stepCount = 0
+    # for agent in env.agent_iter():
+    #     obs, reward, terminated, truncated, info = env.last()
+    #     if terminated:
+    #         env.step(None)
+    #         print(f'Agent {agent} terminated')
 
-        elif truncated:
-            env.step(None)
-            print('Truncated')
+    #     elif truncated:
+    #         env.step(None)
+    #         print('Truncated')
 
-        else:
-            if agent == 'cp':
-                cpAgent = env.agentsDict[agent]
-                cpAgent.money += reward
-                if cpAgent.money <= 0:
-                    print('CP agent is out of money.')
-                    quit()
+    #     else:
+    #         if agent == 'cp':
+    #             cpAgent = env.agentsDict[agent]
+    #             cpAgent.money += reward
+    #             if cpAgent.money <= 0:
+    #                 print('CP agent is out of money.')
+    #                 quit()
 
-                elif all(cdn.soldContigent <= 0 for cdn in env.cdns): # Buy contigent from cdn with lowest price and steer client to it.
-                    indexOfCheapestCDN, _ = min(enumerate(env.cdns), key=lambda item: item[1].pricingFactor)
-                    buyContigent_action = indexOfCheapestCDN
-                    steerClient_action = [indexOfCheapestCDN]
+    #             elif all(cdn.soldContigent <= 0 for cdn in env.cdns): # Buy contigent from cdn with lowest price and steer client to it.
+    #                 indexOfCheapestCDN, _ = min(enumerate(env.cdns), key=lambda item: item[1].pricingFactor)
+    #                 buyContigent_action = indexOfCheapestCDN
+    #                 steerClient_action = [indexOfCheapestCDN]
 
-                else: # Steer client to CDN with already bought contigent. Don't buy anything.
-                    buyContigent_action = env.cdnCount + 1
-                    cdn = next((cdn for cdn in env.cdns if cdn.soldContigent > 0), None)
-                    steerClient_action = [cdn.id[3:]]
+    #             else: # Steer client to CDN with already bought contigent. Don't buy anything.
+    #                 buyContigent_action = env.cdnCount + 1
+    #                 cdn = next((cdn for cdn in env.cdns if cdn.soldContigent > 0), None)
+    #                 steerClient_action = [cdn.id[3:]]
                 
-                action = {
-                    'buyContigent': buyContigent_action,
-                    'steerClient': steerClient_action
-                }
+    #             action = {
+    #                 'buyContigent': buyContigent_action,
+    #                 'steerClient': steerClient_action
+    #             }
 
-            elif 'cdn' in agent:
-                cdnAgent = env.agentsDict[agent]
-                if cdnAgent.soldContigent > 0 and cdnAgent.pricingFactor < 5:
-                    cdnAgent.pricingFactor = round(cdnAgent.pricingFactor + 0.1, 3)
-                elif cdnAgent.soldContigent <= 0 and cdnAgent.pricingFactor > 0:
-                    cdnAgent.pricingFactor = round(cdnAgent.pricingFactor - 0.1, 3)
-                else:
-                    print(f'CDN agent has a price of {cdnAgent.pricingFactor}.')
+    #         elif 'cdn' in agent:
+    #             cdnAgent = env.agentsDict[agent]
+    #             if cdnAgent.soldContigent > 0 and cdnAgent.pricingFactor < 5:
+    #                 cdnAgent.pricingFactor = round(cdnAgent.pricingFactor + 0.1, 3)
+    #             elif cdnAgent.soldContigent <= 0 and cdnAgent.pricingFactor > 0:
+    #                 cdnAgent.pricingFactor = round(cdnAgent.pricingFactor - 0.1, 3)
+    #             else:
+    #                 print(f'CDN agent has a price of {cdnAgent.pricingFactor}.')
                 
-                action = {
-                    'changePrice': cdnAgent.pricingFactor,
-                    'moveEdgeServer': 1
-                }
+    #             action = {
+    #                 'changePrice': cdnAgent.pricingFactor,
+    #                 'moveEdgeServer': 1
+    #             }
 
-            else:
-                raise Exception('Agent in main function not found.')
+    #         else:
+    #             raise Exception('Agent in main function not found.')
 
-            env.step(action)
-        stepCount += 1
-        if stepCount >= 10000: 
-            print('Step count exceeded.')
-            break
-    env.close()
+    #         env.step(action)
+    #     stepCount += 1
+    #     if stepCount >= 10000: 
+    #         print('Step count exceeded.')
+    #         break
+    # env.close()
+
+    env()
