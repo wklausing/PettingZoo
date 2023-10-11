@@ -9,23 +9,24 @@ import supersuit as ss
 from stable_baselines3.ppo import MlpPolicy
 from stable_baselines3 import PPO
 
-from custom_environment.sabreEnvironment_v1 import env, raw_env
+from custom_environment.sabre_v1 import env, raw_env
+from pettingzoo import AECEnv
 
 import time
 
-def train(env_fn, steps: int = 10_000, seed: int | None = 0, **env_kwargs):
+def train(env, steps: int = 10_000, seed: int | None = 0, **env_kwargs):
     # Train a single model to play as each agent in an AEC environment
-    env = env_fn.parallel_env(**env_kwargs)
+    #env = env_fn.parallel_env(**env_kwargs)
 
     # Add black death wrapper so the number of agents stays constant
     # MarkovVectorEnv does not support environments with varying numbers of active agents unless black_death is set to True
-    env = ss.black_death_v3(env)
+    #env = ss.black_death_v3(env_fn)
 
     env.reset(seed=seed)
 
     print(f"Starting training on {str(env.metadata['name'])}.")
 
-    env = ss.pettingzoo_env_to_vec_env_v1(env)
+    #env = ss.pettingzoo_env_to_vec_env_v1(env)
     env = ss.concat_vec_envs_v1(env, 8, num_cpus=1, base_class="stable_baselines3")
 
     # Use a CNN policy if the observation space is visual
@@ -49,7 +50,8 @@ def train(env_fn, steps: int = 10_000, seed: int | None = 0, **env_kwargs):
 if __name__ == "__main__":
     
     env = env()
-    quit()
-    env_fn = knights_archers_zombies_v10
-    env_kwargs = dict(max_cycles=100, max_zombies=4, vector_state=True)
-    train(env_fn, steps=81_920, seed=0, **env_kwargs)
+
+    if isinstance(env, AECEnv):
+        print('AECEnv')
+    
+    train(env, steps=81_920, seed=0)
