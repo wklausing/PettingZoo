@@ -14,6 +14,10 @@ from pettingzoo import AECEnv
 
 import time
 
+from pettingzoo.utils.conversions import aec_to_parallel
+
+from supersuit import pad_action_space_v0
+
 def train(env, steps: int = 10_000, seed: int | None = 0, **env_kwargs):
     # Train a single model to play as each agent in an AEC environment
     #env = env_fn.parallel_env(**env_kwargs)
@@ -26,7 +30,7 @@ def train(env, steps: int = 10_000, seed: int | None = 0, **env_kwargs):
 
     print(f"Starting training on {str(env.metadata['name'])}.")
 
-    #env = ss.pettingzoo_env_to_vec_env_v1(env)
+    env = ss.pettingzoo_env_to_vec_env_v1(env)
     env = ss.concat_vec_envs_v1(env, 8, num_cpus=1, base_class="stable_baselines3")
 
     # Use a CNN policy if the observation space is visual
@@ -50,8 +54,7 @@ def train(env, steps: int = 10_000, seed: int | None = 0, **env_kwargs):
 if __name__ == "__main__":
     
     env = env()
-
-    if isinstance(env, AECEnv):
-        print('AECEnv')
+    env = pad_action_space_v0(env)
+    env = aec_to_parallel(env)
     
     train(env, steps=81_920, seed=0)

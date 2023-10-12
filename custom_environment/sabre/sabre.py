@@ -3,9 +3,9 @@ import gymnasium
 from gymnasium.spaces import Discrete
 from pettingzoo.utils import agent_selector, wrappers
 import numpy as np
-import random
 from gymnasium.spaces import Dict, Discrete, Box, MultiDiscrete
 from pettingzoo.test import api_test
+
 
 def env(render_mode=None):
     """
@@ -23,13 +23,13 @@ def env(render_mode=None):
     # Provides a wide vareity of helpful user errors
     # Strongly recommended
     env = wrappers.OrderEnforcingWrapper(env)
-    # env = FlattenObservation(env)
+    #env = wrappers.FlattenObservation(env)
     api_test(env, num_cycles=1000, verbose_progress=False)
     return env
 
 class raw_env(AECEnv):
 
-    metadata = {"render_modes": ["human"], "name": "sabre"}
+    metadata = {"render_modes": ["human"], "name": "sabre", "is_parallelizable": True}
 
     _observation_space_cache = {}
     _action_space_cache = {}
