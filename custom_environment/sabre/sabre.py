@@ -63,8 +63,8 @@ class raw_env(AECEnv):
         self.cdnIds = [f'cdn_{i}' for i in range(cdnCount)]
         self.cdns = [CDN(env=self, id=f'cdn_{i}') for i in range(cdnCount)]
 
-        self.contentProvider = ContentProvider(env=self, id='cp_0')
-        self.agentsDict = {'cp_0': self.contentProvider, **{self.cdns[i].id: self.cdns[i] for i in range(cdnCount)}}
+        self.cp = ContentProvider(env=self, id='cp_0')
+        self.agentsDict = {'cp_0': self.cp, **{self.cdns[i].id: self.cdns[i] for i in range(cdnCount)}}
         self.agents = ['cp_0'] + self.cdnIds # List of all agent ids.
         self.possible_agents = ['cp_0'] + self.cdnIds # List of all agent ids, which never changes.
 
@@ -100,22 +100,25 @@ class raw_env(AECEnv):
             '''
             total_edge_servers = len(self.cdns)# Should later on be number of edgeServers, not CDNs
             numClients = len(self.clients)
-            action_space = Dict({
-                "buyContigent": Discrete(self.cdnCount + 1), # Counting up from 0 to cdnCount-1. Last action is not buying contigent.
-                "steerClient": MultiDiscrete([total_edge_servers] * numClients)
-            })
+
+            '''
+            First fields are purchasing contigent from CDN, last fields are steering clients to edge servers.
+            [1,0,1,1,1,1,1]
+            '''
+            self.buyContigentNum = self.cdnCount
+            self.steerClientNum = total_edge_servers * numClients
+            total = self.buyContigentNum + self.steerClientNum
+            action_space = Box(low=0, high=total_edge_servers, shape=(total,), dtype=np.float32)
 
         elif 'cdn' in agent:
             '''
             Possible action of CDN: First, change price; second, move edge server.
             '''
-            action_space = Dict({
-                "changePrice": Box(low=0, high=5, shape=(1,), dtype=np.float32),
-                "moveEdgeServer": Discrete(self.map_x * self.map_y) # Assuming 10x10 grid for positions
-            })
+            action_space = Box(low=0, high=5, shape=(1,), dtype=np.float32)
 
         else:
             raise Exception('Agent in action_space function not found.')
+        
         self._action_space_cache[agent] = action_space
         return action_space
         
@@ -275,14 +278,16 @@ class raw_env(AECEnv):
 
         if action is None: return
 
-        buyContigent = action['buyContigent']
-        if buyContigent < self.cdnCount:
-            self.contentProvider.buyContigent(self.cdns[buyContigent])
-        
-        steerClient = action['steerClient']
-        for i, j in enumerate(steerClient):
-            self.clients[i].currentCDN = self.cdns[int(j)]
-            self.contentProvider.steerClient(self.clients[i], self.cdns[int(j)].edgeServers[0])
+        #Buy contigent from CDN
+        for i in range(self.buyContigentNum):
+            if action[i] > 0:
+                self.cp.buyContigent(self.cdns[i])
+
+        #Steer clients to edge servers
+        self.steerClientNum
+        for i in range(self.steerClientNum):
+            if action[i + self.buyContigentNum] > 0:
+                self.cp.steerClient(self.clients[i], self.cdns[int(action[i + self.buyContigentNum])].edgeServers[0])
 
     def doCDNAction(self, action):
         cdnAgent = self.agentsDict[self.agent_selection]
@@ -291,7 +296,7 @@ class raw_env(AECEnv):
             self.terminations[self.agent_selection] = True
             return
 
-        cdnAgent.pricingFactor = action['changePrice'][0]
+        cdnAgent.pricingFactor = action[0]
 
     def update_environment_dynamics(self):
         """
