@@ -68,6 +68,11 @@ class raw_env(AECEnv):
         self.agents = ['cp_0'] + self.cdnIds # List of all agent ids.
         self.possible_agents = ['cp_0'] + self.cdnIds # List of all agent ids, which never changes.
 
+        self.infos = {agent: {} for agent in self.agents}
+        self._live_agents = self.agents[:]
+        self._dead_agents = []
+        self._kill_list = []
+
         #TODO currently taking first cdn as fetching origin
         self.clients = [Client(env=self, id=f'client{i}', currentCDN=self.cdns[0]) for i in range(numClient)]
 
@@ -241,9 +246,8 @@ class raw_env(AECEnv):
         # agent should start again at 0
         self._cumulative_rewards[agent] = 0
 
-        if agent == 'cp':
+        if 'cp' in agent:
             self.doCpAction(action)
-            
         elif 'cdn' in agent:
             self.doCDNAction(action)
         else:
@@ -257,10 +261,37 @@ class raw_env(AECEnv):
         # Adds .rewards to ._cumulative_rewards
         self._accumulate_rewards()
 
+        if self.agentsDict[agent].money < 0:
+            self._kill_list.append(agent)
+
         # Environment dynamics are updated after all agents have taken their turns
         if self._agent_selector.is_last():
             self.update_environment_dynamics()
             self.turn_counter = 0
+        
+            # start iterating on only the living agents
+            _live_agents = self.agents[:]
+            for k in self._kill_list:
+                # kill the agent
+                _live_agents.remove(k)
+                # set the termination for this agent for one round
+                self.terminations[k] = True
+                # add that we know this guy is dead
+                self._dead_agents.append(k)
+
+            # reset the kill list
+            self._kill_list = []
+
+            # reinit the agent selector with existing agents
+            self._agent_selector.reinit(_live_agents)
+
+        # if there still exist agents, get the next one
+        if len(self._agent_selector.agent_order):
+            self.agent_selection = self._agent_selector.next()
+
+        for agent in self.agents:
+            if self.agentsDict[agent].money < 0:
+                self._kill_list.append(agent)
 
         if self.render_mode == "human":
             self.render()
@@ -285,9 +316,9 @@ class raw_env(AECEnv):
 
         #Steer clients to edge servers
         self.steerClientNum
-        for i in range(self.steerClientNum):
+        for client in self.clients:
             if action[i + self.buyContigentNum] > 0:
-                self.cp.steerClient(self.clients[i], self.cdns[int(action[i + self.buyContigentNum])].edgeServers[0])
+                self.cp.steerClient(client, self.cdns[int(action[i + self.buyContigentNum])].edgeServers[0])
 
     def doCDNAction(self, action):
         cdnAgent = self.agentsDict[self.agent_selection]
@@ -304,7 +335,7 @@ class raw_env(AECEnv):
         Includes i.e. updating positions of clients and edge servers.
         """
         for client in self.clients:
-            client.fetchContent()
+            client.fetchContent()                 
 
     def render(self):
         """
@@ -317,6 +348,10 @@ class raw_env(AECEnv):
             )
             return
         string = "Game over"
+        
+        for agent in self.agentsDict.values():
+            print(f'Name: {agent.id}, Money: {agent.money}')
+
         #print(string)
 
 
@@ -384,7 +419,8 @@ class ContentProvider:
         Buying contigent of GBs from CDNs.
         '''
         self.money -= 10 * cdn.pricingFactor
-        index = int(cdn.id[3:])
+        index = cdn.id[4:]
+        index = int(index)
         self.boughtContigents[index] += 10
         cdn.sellContigent(10)
 
