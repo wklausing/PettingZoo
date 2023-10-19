@@ -56,8 +56,10 @@ def train(env, steps: int = 10_000, seed: int | None = 0, **env_kwargs):
 
 def eval(env_fn, num_games: int = 100, render_mode: str | None = None, **env_kwargs):
     # Evaluate a trained agent vs a random agent
-    env = env_fn.env(render_mode=render_mode, **env_kwargs)
-
+    # env = env_fn.env(render_mode=render_mode, **env_kwargs)
+    
+    env = sabre_v1.raw_env(render_mode=render_mode, **env_kwargs)
+    
     print(
         f"\nStarting evaluation on {str(env.metadata['name'])} (num_games={num_games}, render_mode={render_mode})"
     )
