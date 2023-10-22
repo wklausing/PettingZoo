@@ -70,8 +70,7 @@ class raw_env(AECEnv):
 
         self.infos = {agent: {} for agent in self.agents}
         self._live_agents = self.agents[:]
-        self._dead_agents = []
-        self._kill_list = []
+        self.kill_list = []
 
         #TODO currently taking first cdn as fetching origin
         self.clients = [Client(env=self, id=f'client{i}', currentCDN=self.cdns[0]) for i in range(numClient)]
@@ -96,8 +95,6 @@ class raw_env(AECEnv):
 
         if agent in self._action_space_cache:
             return self._action_space_cache[agent]
-
-        action_space = None
 
         if 'cp' in agent:
             '''
@@ -131,9 +128,6 @@ class raw_env(AECEnv):
     # lru_cache allows observation and action spaces to be memoized, reducing clock cycles required to get each agent's space.
     # If your spaces change over time, remove this line (disable caching).
     def observation_space(self, agent):
-        #print(f"observation_space({agent})")
-
-        print(agent)
 
         if agent in self._observation_space_cache:
             return self._observation_space_cache[agent]
@@ -239,7 +233,6 @@ class raw_env(AECEnv):
             # accepts a None action for the one agent, and moves the agent_selection to
             # the next dead agent, or if there are no more dead agents, to the next live agent
             self._was_dead_step(action)
-            #self.infos[self.agent_selection] = {}
             return
         
         agent = self.agent_selection
@@ -259,46 +252,41 @@ class raw_env(AECEnv):
         # stores action of current agent
         self.state[self.agent_selection] = action
 
+        # Environment dynamics are updated after all agents have taken their turns
+        if self._agent_selector.is_last():
+            self.update_environment_dynamics()
+
+            # Check if any agents have negative money and add them to the kill list
+            for agent in self.agentsDict.values():
+                if agent.money < 0:
+                    self.kill_list.append(agent.id)
+
+            # Deal with terminations and truncations
+            _live_agents = self.agents[:]
+            for k in self.kill_list:
+                # kill the agent
+                _live_agents.remove(k)
+                # set the termination for this agent for one round
+                self.terminations[k] = True
+
+            # Condition to end the game
+            if 'cp_0' not in _live_agents:
+                for agent in self.agents:
+                    self.terminations[agent] = True
+
+            # reset the kill list
+            self.kill_list = []
+
+            # reinit the agent selector with existing agents
+            self._agent_selector.reinit(_live_agents)
+        
         # selects the next agent.
         self.agent_selection = self._agent_selector.next()
         # Adds .rewards to ._cumulative_rewards
         self._accumulate_rewards()
 
-        if self.agentsDict[agent].money < 0:
-            self.terminations[agent] = True
-
-        # Environment dynamics are updated after all agents have taken their turns
-        if self._agent_selector.is_last():
-            self.update_environment_dynamics()
-        
-        #     # start iterating on only the living agents
-        #     _live_agents = self.agents[:]
-        #     for k in self._kill_list:
-        #         # kill the agent
-        #         _live_agents.remove(k)
-        #         # set the termination for this agent for one round
-        #         self.terminations[k] = True
-        #         # add that we know this guy is dead
-        #         self._dead_agents.append(k)
-
-        #     # reset the kill list
-        #     self._kill_list = []
-
-        #     # reinit the agent selector with existing agents
-        #     self._agent_selector.reinit(_live_agents)
-
-        # # if there still exist agents, get the next one
-        # if len(self._agent_selector.agent_order):
-        #     self.agent_selection = self._agent_selector.next()
-
-        # for agent in self.agents:
-        #     if self.agentsDict[agent].money < 0:
-        #         self._kill_list.append(agent)
-
         if self.render_mode == "human":
             self.render()
-
-        #self.agent_selection = self._agent_selector.next()
 
     def doCpAction(self, action):
         '''
@@ -321,7 +309,8 @@ class raw_env(AECEnv):
         #Steer clients to edge servers
         for client in self.clients:
             if action[i + self.cdnCount] > 0:
-                self.cp.steerClient(client, self.cdns[int(action[i + self.cdnCount])].edgeServers[0])
+                index = int(action[i + self.cdnCount])
+                self.cp.steerClient(client, self.cdns[index].edgeServers[0])
 
     def doCDNAction(self, action):
         cdnAgent = self.agentsDict[self.agent_selection]
@@ -354,8 +343,6 @@ class raw_env(AECEnv):
         
         for agent in self.agentsDict.values():
             print(f'Name: {agent.id}, Money: {agent.money}')
-
-        #print(string)
 
 
 class CDN: 
